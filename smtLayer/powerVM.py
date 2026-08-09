@@ -31,6 +31,7 @@ modId = 'PVM'
 vmOSUpStates = ['on', 'up']
 vmOSUpDownStates = ['down', 'off', 'on', 'up']
 version = "1.0.0"
+CONF = config.CONF
 
 """
 List of subfunction handlers.
@@ -147,24 +148,24 @@ def activate(rh):
     """
     rh.printSysLog("Enter powerVM.activate, userid: " + rh.userid)
 
-    if config.CONF.zvm.prefer_vmcp_query == "yes":
+    if CONF.zvm.prefer_vmcp_query == 'yes':
         handler = VMCPHandler(rh)
-        handler.activate(rh.userid)
+        response, rc = handler._run(['xautolog', rh.userid])
+        rh.printSysLog(response)
+        rh.printSysLog("RC: %s" % rc)
+        return rc
 
+    parms = ["-T", rh.userid]
+    smcliResults = invokeSMCLI(rh, "Image_Activate", parms)
+    if smcliResults['overallRC'] == 0:
+        pass
+    elif (smcliResults['overallRC'] == 8 and
+        smcliResults['rc'] == 200 and smcliResults['rs'] == 8):
+        pass    # All good.  No need to change the ReqHandle results.
     else:
-        parms = ["-T", rh.userid]
-        smcliResults = invokeSMCLI(rh, "Image_Activate", parms)
-
-        if smcliResults['overallRC'] == 0:
-            pass
-        elif (smcliResults['overallRC'] == 8 and
-              smcliResults['rc'] == 200 and
-              smcliResults['rs'] == 8):
-            pass    # All good. No need to change the ReqHandle results.
-        else:
-            # SMAPI API failed.
-            rh.printLn("ES", smcliResults['response'])
-            rh.updateResults(smcliResults)
+        # SMAPI API failed.
+        rh.printLn("ES", smcliResults['response'])
+        rh.updateResults(smcliResults)    # Use results from invokeSMCLI
 
     if rh.results['overallRC'] == 0 and 'maxQueries' in rh.parms:
         # Wait for the system to be in the desired state of:
@@ -623,17 +624,12 @@ def reset(rh):
 
     # Log the user back on
     if results['overallRC'] == 0:
-        if config.CONF.zvm.prefer_vmcp_query == "yes":
-            handler = VMCPHandler(rh)
-            handler.activate(rh.userid)
-            results = rh.results
-        else:
-            parms = ["-T", rh.userid]
-            results = invokeSMCLI(rh, "Image_Activate", parms)
-            if results['overallRC'] != 0:
-                # SMAPI API failed.
-                rh.printLn("ES", results['response'])
-                rh.updateResults(results)  # Use results from invokeSMCLI
+        parms = ["-T", rh.userid]
+        results = invokeSMCLI(rh, "Image_Activate", parms)
+        if results['overallRC'] != 0:
+            # SMAPI API failed.
+            rh.printLn("ES", results['response'])
+            rh.updateResults(results)    # Use results from invokeSMCLI
 
     if results['overallRC'] == 0 and 'maxQueries' in rh.parms:
         if rh.parms['desiredState'] == 'up':

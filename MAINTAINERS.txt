@@ -1,4 +1,3 @@
 Maintainers
 
-Rajat Sharma Rajat-0 <Rajat.Sharma12@ibm.com>
-Mike Friesenegger mfriesenegger <mikef@suse.com>
+Huang Rui bjhuangr bjhuangr@cn.ibm.com

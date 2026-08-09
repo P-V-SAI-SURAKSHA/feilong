@@ -1728,7 +1728,7 @@ Get the list of image info in image repository.
   - output: image_info
   - imagename: image_name
   - imageosdistro: guest_os_version
-  - checksum: image_checksum
+  - md5sum: image_md5sum
   - disk_size_units: root_disk_size_image
   - image_size_in_bytes: physical_disk_size_image
   - type: image_type
@@ -2415,7 +2415,7 @@ contains the binary data.
   - output: file_import_output
   - dest_url: file_import_dest_url
   - filesize_in_bytes: imported_file_size
-  - checksum: file_checksum
+  - md5sum: file_md5sum
 
 * Response sample:
 

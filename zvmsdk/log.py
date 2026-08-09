@@ -64,6 +64,8 @@ class Logger():
             log_level = logging.WARN
         elif log_level in ('LOGGING.ERROR', 'ERROR'):
             log_level = logging.ERROR
+        elif log_level in ('LOGGING.CRITICAL', 'CRITICAL'):
+            log_level = logging.CRITICAL
         else:
             # default to logging.INFO
             log_level = logging.INFO

@@ -1392,15 +1392,15 @@ class SMTClient(object):
 
         msg = ('Updating the metadata for captured image %s ' % image_name)
         LOG.info(msg)
-        # Get checksum of image
-        real_checksum = self._get_checksum(image_final_path)
+        # Get md5sum of image
+        real_md5sum = self._get_md5sum(image_final_path)
         # Get disk_size_units of image
         disk_size_units = self._get_disk_size_units(image_final_path)
         # Get the image physical size
         image_size = self._get_image_size(image_final_path)
         # Create the image record in image database
         self._ImageDbOperator.image_add_record(image_name, os_version,
-            real_checksum, disk_size_units, image_size,
+            real_md5sum, disk_size_units, image_size,
             capture_type)
         if restart_flag:
             LOG.info('Try start %s for capture completed successfully.'
@@ -2702,44 +2702,15 @@ class SMTClient(object):
                                                     import_image_fpath,
                                                     remote_host=remote_host)
 
-            # 'md5sum' is deprecated: MD5 is not collision-resistant, and
-            # this key can no longer be compared against the SHA-512
-            # real_checksum computed below. Reject it explicitly rather
-            # than silently failing every legacy caller with a
-            # misleading "image has been broken" error.
-            if image_meta.get('md5sum'):
-                msg = ("The 'md5sum' key is deprecated and no longer "
-                       "accepted for image integrity verification. Please "
-                       "provide a SHA-512 checksum in the 'checksum' key, "
-                       "or specify the hash algorithm and value via "
-                       "'os_hash_algo' and 'os_hash_value'.")
+            # Check md5 after import to ensure import a correct image
+            # TODO change to use query image name in DB
+            expect_md5sum = image_meta.get('md5sum')
+            real_md5sum = self._get_md5sum(import_image_fpath)
+            if expect_md5sum and expect_md5sum != real_md5sum:
+                msg = ("The md5sum after import is not same as source image,"
+                       " the image has been broken")
                 LOG.error(msg)
-                raise exception.SDKImageOperationError(rs=14, msg=msg)
-
-            # Check checksum after import to ensure a correct image was
-            # imported.
-            # real_checksum (SHA-512) is always computed for DB storage.
-            # For caller-supplied integrity values, use os_hash_algo when
-            # present so the comparison is algo-agnostic; otherwise fall
-            # back to comparing SHA-512 against 'checksum'.
-            real_checksum = self._get_checksum(import_image_fpath)
-            os_hash_algo = image_meta.get('os_hash_algo')
-            os_hash_value = image_meta.get('os_hash_value')
-            if os_hash_algo and os_hash_value:
-                caller_checksum = self._get_checksum(import_image_fpath,
-                                                     algo=os_hash_algo)
-                if caller_checksum != os_hash_value:
-                    msg = ("The checksum after import is not same as source "
-                           "image, the image has been broken")
-                    LOG.error(msg)
-                    raise exception.SDKImageOperationError(rs=4)
-            else:
-                expect_checksum = image_meta.get('checksum')
-                if expect_checksum and expect_checksum != real_checksum:
-                    msg = ("The checksum after import is not same as source "
-                           "image, the image has been broken")
-                    LOG.error(msg)
-                    raise exception.SDKImageOperationError(rs=4)
+                raise exception.SDKImageOperationError(rs=4)
 
             # After import to image repository, figure out the image type is
             # single disk image or multiple-disk image,if multiple disks image,
@@ -2766,10 +2737,10 @@ class SMTClient(object):
                                                             final_image_fpath)
             image_size = self._get_image_size(final_image_fpath)
 
-            # TODO: update the real_checksum field to include each disk image
+            # TODO: update the real_md5sum field to include each disk image
             self._ImageDbOperator.image_add_record(image_name,
                                                    image_os_version,
-                                                   real_checksum,
+                                                   real_md5sum,
                                                    disk_size_units,
                                                    image_size,
                                                    image_type,
@@ -2794,7 +2765,7 @@ class SMTClient(object):
          'image_name': the image_name that exported
          'image_path': the image_path after exported
          'os_version': the os version of the exported image
-         'checksum': the checksum of the original image
+         'md5sum': the md5sum of the original image
          'comments': the comments of the original image
         }
         """
@@ -2823,11 +2794,11 @@ class SMTClient(object):
                                                     remote_host=remote_host)
 
         # TODO: (nafei) for multiple disks image, update the expect_dict
-        # to be the tgz's checksum
+        # to be the tgz's md5sum
         export_dict = {'image_name': image_name,
                        'image_path': dest_url,
                        'os_version': image_info[0]['imageosdistro'],
-                       'checksum': image_info[0]['checksum'],
+                       'md5sum': image_info[0]['md5sum'],
                        'comments': image_info[0]['comments']}
         LOG.info("Image %s export successfully" % image_name)
         return export_dict
@@ -2950,28 +2921,24 @@ class SMTClient(object):
             LOG.error(msg)
             raise exception.SDKImageOperationError(rs=2, schema=scheme)
 
-    def _get_checksum(self, fpath, algo='sha512'):
-        """Calculate the checksum of the specific image file.
-
-        :param fpath: path to the image file or a file-like object
-        :param algo: hash algorithm name accepted by hashlib (default sha512)
-        """
+    def _get_md5sum(self, fpath):
+        """Calculate the md5sum of the specific image file"""
         try:
-            current_checksum = hashlib.new(algo)
+            current_md5 = hashlib.md5()
             if isinstance(fpath, six.string_types) and os.path.exists(fpath):
                 with open(fpath, "rb") as fh:
                     for chunk in self._read_chunks(fh):
-                        current_checksum.update(chunk)
+                        current_md5.update(chunk)
 
             elif (fpath.__class__.__name__ in ["StringIO", "StringO"] or
                   isinstance(fpath, IOBase)):
                 for chunk in self._read_chunks(fpath):
-                    current_checksum.update(chunk)
+                    current_md5.update(chunk)
             else:
                 return ""
-            return current_checksum.hexdigest()
+            return current_md5.hexdigest()
         except Exception:
-            msg = "Failed to calculate the image's checksum"
+            msg = ("Failed to calculate the image's md5sum")
             LOG.error(msg)
             raise exception.SDKImageOperationError(rs=3)
 
@@ -4594,29 +4561,88 @@ class SMTClient(object):
                 lun = ent.split()[2].strip()
         return (wwpn, lun)
 
+    def _parse_ssi_info(self, vmcp_response):
+
+        # Pass vmcp query ssi raw output
+        if isinstance(vmcp_response, tuple):
+            vmcp_response = vmcp_response[0]
+
+        response = []
+
+        # Parse SSI information
+        ssi_name = re.search(r"SSI Name:\s*(.+)", vmcp_response)
+        ssi_mode = re.search(r"SSI Mode:\s*(.+)", vmcp_response)
+        cst = re.search(r"Cross-System Timeouts:\s*(.+)", vmcp_response)
+        pdr = re.search(
+            r"SSI Persistent Data Record \(PDR\) device:\s*(\S+)\s+on\s+(\S+)",
+            vmcp_response
+        )
+
+        if ssi_name:
+            response.append(f"ssi_name = {ssi_name.group(1)}")
+        if ssi_mode:
+            response.append(f"ssi_mode = {ssi_mode.group(1)}")
+        if pdr:
+            response.append(f"ssi_pdr = {pdr.group(1)}_on_{pdr.group(2)}")
+        if cst:
+            response.append(f"cross_system_timeouts = {cst.group(1)}")
+
+        # Parse member information
+        member_pattern = re.compile(
+            r"^\s*(\d+)\s+(\S+)\s+(\S+)"
+            r"(?:\s+(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})"
+            r"\s+(\d{2}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2}))?$",
+            re.MULTILINE
+        )
+
+        member_matches = list(member_pattern.finditer(vmcp_response))
+
+        response.append(f"output.ssiInfoCount = {len(member_matches)}")
+        response.append("")
+
+        for match in member_matches:
+            (
+                slot,
+                system_id,
+                state,
+                pdr_date,
+                pdr_time,
+                recv_date,
+                recv_time,
+            ) = match.groups()
+
+            if system_id == "--------":
+                system_id = "N/A"
+
+            pdr_hb = (
+                f"{pdr_date}_{pdr_time}"
+                if pdr_date and pdr_time else "N/A"
+            )
+
+            recv_hb = (
+                f"{recv_date}_{recv_time}"
+                if recv_date and recv_time else "N/A"
+            )
+
+            response.extend([
+                f"member_slot = {slot}",
+                f"member_system_id = {system_id}",
+                f"member_state = {state}",
+                f"member_pdr_heartbeat = {pdr_hb}",
+                f"member_received_heartbeat = {recv_hb}",
+                ""
+            ])
+
+        return {"response": response}
 
     def host_get_ssi_info(self):
         msg = ('Start SSI_Query')
         LOG.info(msg)
 
         if CONF.zvm.prefer_vmcp_query == 'yes':
-            try:
-                results = self._VMCPHandler.ssi_info()
-            except exception.SDKSMTRequestFailed as err:
-                LOG.error("Failed to query SSI information from VMCP command.")
-                err_msg = "SMT error: %s" % err.format_message()
-                LOG.error(err_msg)
-                raise exception.SDKSMTRequestFailed(err.results, err_msg)
-            # Host is not a member of an SSI cluster
-            if (results.get('rc') == 0 and
-                    "This system is not a member of an SSI cluster."
-                    in "\n".join(results.get('response', []))):
-                LOG.debug("Host is not a member of an SSI cluster.")
-                return []
-
-            if results.get('rc') == 0 and results.get('response'):
-                return results['response']
-            return []
+            vmcp_response = self._VMCPHandler._run(['QUERY SSI'])
+            results = self._parse_ssi_info(vmcp_response)
+            return results.get('response', [])
 
         rd = 'SMAPI HYPERVISOR API SSI_Query'
         try:
